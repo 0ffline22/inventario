@@ -70,31 +70,39 @@
 <script>
 const $ = id => document.getElementById(id);
 let actual = null, editId = null;
+let usuarios = [];
 
-// ---------- "Base de datos" en localStorage ----------
+// Cargar usuarios desde la base de datos MySQL a través de api.php
+async function cargarUsuarios() {
+  try {
+    const res = await fetch('api.php?action=get_users');
+    usuarios = await res.json();
+  } catch (e) {
+    error("Error al conectar con la base de datos MySQL");
+  }
+}
+cargarUsuarios();
+
 function leer(k, def) {
   try { const v = localStorage.getItem(k); if (v) return JSON.parse(v); } catch (e) {}
   return def;
 }
 function guardar(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} }
 
-let usuarios = leer("usuarios", [
-  { id: 1, username: "admin", password: "admin123", rol: "ADMIN" },
-  { id: 2, username: "usuario", password: "user123", rol: "USUARIO" },
-  { id: 3, username: "almacen", password: "almacen123", rol: "ALMACENISTA" }
-]);
 let productos = leer("productos", [
   { id: 1, nombre: "Teclado", stock: 20, minimo: 5, precio: 15.5 },
   { id: 2, nombre: "Mouse", stock: 3, minimo: 5, precio: 8 },
   { id: 3, nombre: "Monitor", stock: 10, minimo: 4, precio: 120 }
 ]);
 let pedidos = leer("pedidos", []);
-const persistir = () => { guardar("usuarios", usuarios); guardar("productos", productos); guardar("pedidos", pedidos); };
+const persistir = () => { guardar("productos", productos); guardar("pedidos", pedidos); };
 const sigId = lista => lista.reduce((m, x) => Math.max(m, x.id), 0) + 1;
 const error = m => { $("msg").textContent = m; };
 
 // ---------- Sesión ----------
-function login() {
+async function login() {
+  if (usuarios.length === 0) await cargarUsuarios();
+  
   const u = usuarios.find(x => x.username === $("u").value && x.password === $("p").value);
   if (!u) return error("Credenciales incorrectas");
   error("");
@@ -172,14 +180,10 @@ function quitar(id) {
   }
 }
 
-// ---------- Usuarios (solo ADMIN) ----------
+// ---------- Usuarios ----------
 function crearUser() {
   if (actual.rol !== "ADMIN") return;
-  const username = $("nu").value.trim(), password = $("np").value;
-  if (!username || !password) return error("Completa usuario y contraseña");
-  if (usuarios.some(x => x.username === username)) return error("El usuario ya existe");
-  usuarios.push({ id: sigId(usuarios), username, password, rol: $("nr").value });
-  $("nu").value = ""; $("np").value = ""; error(""); persistir(); render();
+  error("Los roles y usuarios están configurados directamente desde la base de datos.");
 }
 </script>
 </body>
