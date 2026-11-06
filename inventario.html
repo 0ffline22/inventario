@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Inventario</title>
+<style>
+  body{font-family:Arial,sans-serif;margin:0;background:#f3f4f6;color:#222}
+  header{background:#1f3a5f;color:#fff;padding:12px 20px;display:flex;justify-content:space-between;align-items:center}
+  main{max-width:900px;margin:20px auto;padding:0 12px}
+  section{background:#fff;padding:16px;border-radius:8px;margin-bottom:16px;box-shadow:0 1px 3px #0002}
+  input,select,button{padding:8px;margin:3px;border:1px solid #bbb;border-radius:5px}
+  button{background:#1f3a5f;color:#fff;cursor:pointer;border:0}
+  button.rojo{background:#b42318}
+  table{width:100%;border-collapse:collapse}
+  th,td{border-bottom:1px solid #ddd;padding:6px;text-align:left}
+  .bajo{background:#fde8e8}
+  .oculto{display:none}
+  #msg{color:#b42318;margin:8px 0;min-height:1em}
+</style>
+</head>
+<body>
+<header><b>📦 Sistema de Inventario</b><span id="info"></span></header>
+<main>
+  <p id="msg"></p>
+
+  <section id="login">
+    <h3>Iniciar sesión</h3>
+    <input id="u" placeholder="Usuario"> <input id="p" type="password" placeholder="Contraseña">
+    <button onclick="login()">Entrar</button>
+  </section>
+
+  <div id="app" class="oculto">
+    <button class="rojo" onclick="salir()">Cerrar sesión</button>
+
+    <section id="secStock" class="oculto">
+      <h3>Stock</h3>
+      <div id="formProd" class="oculto">
+        <input id="pn" placeholder="Nombre"><input id="ps" type="number" placeholder="Stock">
+        <input id="pm" type="number" placeholder="Mínimo"><input id="pp" type="number" step="0.01" placeholder="Precio">
+        <button onclick="guardarProd()">Guardar</button><button onclick="limpiar()">Nuevo</button>
+      </div>
+      <table><thead><tr><th>Producto</th><th>Stock</th><th>Mínimo</th><th>Precio</th><th></th></tr></thead>
+      <tbody id="tbProd"></tbody></table>
+    </section>
+
+    <section id="secPedido">
+      <h3 id="tituloPedido">Realizar pedido</h3>
+      <select id="selProd"></select>
+      <input id="cant" type="number" min="1" value="1" style="width:80px">
+      <button onclick="pedir()">Pedir</button>
+    </section>
+
+    <section id="secUsers" class="oculto">
+      <h3>Crear usuario</h3>
+      <input id="nu" placeholder="Usuario"><input id="np" placeholder="Contraseña">
+      <select id="nr"><option>USUARIO</option><option>ALMACENISTA</option><option>ADMIN</option></select>
+      <button onclick="crearUser()">Crear</button>
+      <table><thead><tr><th>ID</th><th>Usuario</th><th>Rol</th></tr></thead><tbody id="tbUsers"></tbody></table>
+    </section>
+
+    <section>
+      <h3>Pedidos</h3>
+      <table><thead><tr><th>Fecha</th><th>Producto</th><th>Cant.</th><th>Tipo</th><th>Usuario</th></tr></thead>
+      <tbody id="tbPed"></tbody></table>
+    </section>
+  </div>
+</main>
+
+<script>
+const $ = id => document.getElementById(id);
+let actual = null, editId = null;
+
+// ---------- "Base de datos" en localStorage ----------
+function leer(k, def) {
+  try { const v = localStorage.getItem(k); if (v) return JSON.parse(v); } catch (e) {}
+  return def;
+}
+function guardar(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} }
+
+let usuarios = leer("usuarios", [
+  { id: 1, username: "admin", password: "admin123", rol: "ADMIN" },
+  { id: 2, username: "usuario", password: "user123", rol: "USUARIO" },
+  { id: 3, username: "almacen", password: "almacen123", rol: "ALMACENISTA" }
+]);
+let productos = leer("productos", [
+  { id: 1, nombre: "Teclado", stock: 20, minimo: 5, precio: 15.5 },
+  { id: 2, nombre: "Mouse", stock: 3, minimo: 5, precio: 8 },
+  { id: 3, nombre: "Monitor", stock: 10, minimo: 4, precio: 120 }
+]);
+let pedidos = leer("pedidos", []);
+const persistir = () => { guardar("usuarios", usuarios); guardar("productos", productos); guardar("pedidos", pedidos); };
+const sigId = lista => lista.reduce((m, x) => Math.max(m, x.id), 0) + 1;
+const error = m => { $("msg").textContent = m; };
+
+// ---------- Sesión ----------
+function login() {
+  const u = usuarios.find(x => x.username === $("u").value && x.password === $("p").value);
+  if (!u) return error("Credenciales incorrectas");
+  error("");
+  actual = u;
+  $("info").textContent = u.username + " (" + u.rol + ")";
+  $("login").classList.add("oculto");
+  $("app").classList.remove("oculto");
+  $("secStock").classList.toggle("oculto", u.rol === "USUARIO");
+  $("formProd").classList.toggle("oculto", u.rol !== "ADMIN");
+  $("secUsers").classList.toggle("oculto", u.rol !== "ADMIN");
+  $("tituloPedido").textContent = u.rol === "ALMACENISTA" ? "Pedir reposición (solo stock faltante)" : "Realizar pedido";
+  render();
+}
+function salir() { location.reload(); }
+
+// ---------- Pantalla ----------
+function render() {
+  const rol = actual.rol;
+  const lista = rol === "ALMACENISTA" ? productos.filter(p => p.stock < p.minimo) : productos;
+  $("selProd").innerHTML = lista.map(p => `<option value="${p.id}">${p.nombre} (stock ${p.stock})</option>`).join("");
+
+  if (rol !== "USUARIO") {
+    $("tbProd").innerHTML = productos.map(p => `
+      <tr class="${p.stock < p.minimo ? "bajo" : ""}">
+        <td>${p.nombre}</td><td>${p.stock}</td><td>${p.minimo}</td><td>$${p.precio}</td>
+        <td>${rol === "ADMIN"
+          ? `<button onclick="editar(${p.id})">Modificar</button> <button class="rojo" onclick="quitar(${p.id})">Quitar</button>`
+          : (p.stock < p.minimo ? "⚠ Faltante" : "")}</td>
+      </tr>`).join("");
+  }
+  if (rol === "ADMIN") {
+    $("tbUsers").innerHTML = usuarios.map(u => `<tr><td>${u.id}</td><td>${u.username}</td><td>${u.rol}</td></tr>`).join("");
+  }
+  const mis = rol === "ADMIN" ? pedidos : pedidos.filter(x => x.usuario === actual.username);
+  $("tbPed").innerHTML = [...mis].reverse().map(x =>
+    `<tr><td>${x.fecha}</td><td>${x.producto}</td><td>${x.cantidad}</td><td>${x.tipo}</td><td>${x.usuario}</td></tr>`).join("");
+}
+
+// ---------- Pedidos ----------
+function pedir() {
+  const p = productos.find(x => x.id === +$("selProd").value);
+  const cant = +$("cant").value;
+  if (!p) return error("No hay producto seleccionado");
+  if (!(cant > 0)) return error("Cantidad inválida");
+  let tipo;
+  if (actual.rol === "ALMACENISTA") {
+    if (p.stock >= p.minimo) return error("Ese producto no tiene stock faltante");
+    p.stock += cant; tipo = "REPOSICION";
+  } else {
+    if (p.stock < cant) return error("Stock insuficiente (" + p.stock + ")");
+    p.stock -= cant; tipo = "SALIDA";
+  }
+  pedidos.push({ id: sigId(pedidos), producto: p.nombre, cantidad: cant, tipo, usuario: actual.username,
+                 fecha: new Date().toLocaleString("es-MX") });
+  error(""); persistir(); render();
+}
+
+// ---------- Productos (solo ADMIN) ----------
+function guardarProd() {
+  if (actual.rol !== "ADMIN") return;
+  const d = { nombre: $("pn").value.trim(), stock: +$("ps").value, minimo: +$("pm").value, precio: +$("pp").value };
+  if (!d.nombre) return error("Escribe el nombre del producto");
+  if (editId) Object.assign(productos.find(x => x.id === editId), d);
+  else productos.push({ id: sigId(productos), ...d });
+  error(""); limpiar(); persistir(); render();
+}
+function editar(id) {
+  const p = productos.find(x => x.id === id);
+  editId = id; $("pn").value = p.nombre; $("ps").value = p.stock; $("pm").value = p.minimo; $("pp").value = p.precio;
+}
+function limpiar() { editId = null; ["pn", "ps", "pm", "pp"].forEach(i => $(i).value = ""); }
+function quitar(id) {
+  if (actual.rol === "ADMIN" && confirm("¿Quitar producto?")) {
+    productos = productos.filter(x => x.id !== id); persistir(); render();
+  }
+}
+
+// ---------- Usuarios (solo ADMIN) ----------
+function crearUser() {
+  if (actual.rol !== "ADMIN") return;
+  const username = $("nu").value.trim(), password = $("np").value;
+  if (!username || !password) return error("Completa usuario y contraseña");
+  if (usuarios.some(x => x.username === username)) return error("El usuario ya existe");
+  usuarios.push({ id: sigId(usuarios), username, password, rol: $("nr").value });
+  $("nu").value = ""; $("np").value = ""; error(""); persistir(); render();
+}
+</script>
+</body>
+</html>
