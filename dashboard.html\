@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dashboard de monitoreo</title>
+<style>
+  body{font-family:Arial,sans-serif;margin:0;background:#f3f4f6;color:#222}
+  header{background:#1f3a5f;color:#fff;padding:12px 20px;display:flex;justify-content:space-between;align-items:center}
+  main{max-width:1000px;margin:20px auto;padding:0 12px}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px}
+  .card{background:#fff;padding:16px;border-radius:8px;box-shadow:0 1px 3px #0002}
+  .card h3{margin:0 0 4px}
+  .valor{font-size:34px;font-weight:bold;margin:6px 0}
+  .sub{color:#666;font-size:13px;margin-bottom:8px}
+  .barra{height:14px;background:#e5e7eb;border-radius:7px;overflow:hidden}
+  .barra div{height:100%;width:0;background:#2e7d32;transition:width .4s,background .4s}
+  .ok{background:#2e7d32!important}.medio{background:#f59e0b!important}.alto{background:#b42318!important}
+  canvas{width:100%;height:140px;margin-top:10px;background:#fafafa;border-radius:6px}
+  .estado{font-size:13px;padding:4px 10px;border-radius:12px;background:#fff3}
+  .nota{background:#fff;padding:12px 16px;border-radius:8px;margin-top:16px;font-size:13px;color:#444}
+  code{background:#eef;padding:1px 4px;border-radius:3px}
+  pre{background:#1e1e1e;color:#d4d4d4;padding:10px;border-radius:6px;overflow-x:auto}
+</style>
+</head>
+<body>
+<header>
+  <b>📊 Dashboard de monitoreo</b>
+  <span class="estado" id="estado">Iniciando…</span>
+</header>
+
+<main>
+  <div class="grid">
+    <div class="card">
+      <h3>CPU</h3>
+      <div class="valor" id="cpuVal">--%</div>
+      <div class="sub" id="cpuSub">Núcleos: --</div>
+      <div class="barra"><div id="cpuBar"></div></div>
+      <canvas id="cpuGraf" width="400" height="140"></canvas>
+    </div>
+
+    <div class="card">
+      <h3>Memoria RAM</h3>
+      <div class="valor" id="ramVal">--%</div>
+      <div class="sub" id="ramSub">-- / --</div>
+      <div class="barra"><div id="ramBar"></div></div>
+      <canvas id="ramGraf" width="400" height="140"></canvas>
+    </div>
+
+    <div class="card">
+      <h3>Disco duro</h3>
+      <div class="valor" id="disVal">--%</div>
+      <div class="sub" id="disSub">-- / --</div>
+      <div class="barra"><div id="disBar"></div></div>
+      <p class="sub" id="disLibre" style="margin-top:14px">Libre: --</p>
+    </div>
+  </div>
+
+</main>
+
+<script>
+// ================== CONFIGURACIÓN ==================
+const CONFIG = {
+  MODO_DEMO: true,                                  // true = datos simulados | false = usa la API
+  API_URL: "http://localhost:8080/api/metricas",    // endpoint del backend
+  INTERVALO_MS: 2000,                               // cada cuánto se actualiza
+  PUNTOS_GRAFICA: 30,                               // puntos visibles en las gráficas
+  UMBRAL_MEDIO: 60,                                 // % a partir del cual se pone amarillo
+  UMBRAL_ALTO: 85                                   // % a partir del cual se pone rojo
+};
+
+const $ = id => document.getElementById(id);
+const historial = { cpu: [], ram: [] };
+
+// ================== OBTENER DATOS ==================
+let demo = { cpu: 30, ram: 8000, disco: 300 };
+const azar = (v, paso, min, max) => Math.min(max, Math.max(min, v + (Math.random() - 0.5) * paso));
+
+function metricasDemo() {
+  demo.cpu = azar(demo.cpu, 25, 3, 98);
+  demo.ram = azar(demo.ram, 900, 2500, 15500);
+  demo.disco = azar(demo.disco, 0.5, 280, 320);
+  return {
+    cpu: { uso: demo.cpu, nucleos: 8 },
+    ram: { total: 16384, usado: demo.ram },
+    disco: { total: 512, usado: demo.disco }
+  };
+}
+
+async function obtenerMetricas() {
+  if (CONFIG.MODO_DEMO) return metricasDemo();
+  const r = await fetch(CONFIG.API_URL, {
+    headers: { "Accept": "application/json" /* , "Authorization": "Bearer TOKEN" */ }
+  });
+  if (!r.ok) throw new Error("HTTP " + r.status);
+  return r.json();
+}
+
+// ================== PINTAR ==================
+const claseNivel = p => p >= CONFIG.UMBRAL_ALTO ? "alto" : p >= CONFIG.UMBRAL_MEDIO ? "medio" : "ok";
+
+function pintarBarra(idBar, porcentaje) {
+  const b = $(idBar);
+  b.style.width = porcentaje + "%";
+  b.className = claseNivel(porcentaje);
+}
+
+function mb(v) { return v >= 1024 ? (v / 1024).toFixed(1) + " GB" : Math.round(v) + " MB"; }
+
+function grafica(canvasId, datos) {
+  const c = $(canvasId), g = c.getContext("2d"), w = c.width, h = c.height;
+  g.clearRect(0, 0, w, h);
+  g.strokeStyle = "#ddd"; g.fillStyle = "#888"; g.font = "11px Arial"; g.lineWidth = 1;
+  for (let i = 0; i <= 4; i++) {
+    const y = h - (h * i / 4);
+    g.beginPath(); g.moveTo(28, y); g.lineTo(w, y); g.stroke();
+    g.fillText(i * 25 + "%", 0, Math.min(h - 2, Math.max(10, y)));
+  }
+  if (datos.length < 2) return;
+  const paso = (w - 28) / (CONFIG.PUNTOS_GRAFICA - 1);
+  g.strokeStyle = "#1f3a5f"; g.lineWidth = 2; g.beginPath();
+  datos.forEach((v, i) => {
+    const x = 28 + i * paso, y = h - (h * v / 100);
+    i ? g.lineTo(x, y) : g.moveTo(x, y);
+  });
+  g.stroke();
+}
+
+function pintar(m) {
+  // CPU
+  const cpu = m.cpu.uso;
+  $("cpuVal").textContent = cpu.toFixed(1) + "%";
+  $("cpuSub").textContent = "Núcleos: " + m.cpu.nucleos;
+  pintarBarra("cpuBar", cpu);
+
+  // RAM
+  const ramPct = m.ram.usado / m.ram.total * 100;
+  $("ramVal").textContent = ramPct.toFixed(1) + "%";
+  $("ramSub").textContent = mb(m.ram.usado) + " usados de " + mb(m.ram.total);
+  pintarBarra("ramBar", ramPct);
+
+  // Disco
+  const disPct = m.disco.usado / m.disco.total * 100;
+  $("disVal").textContent = disPct.toFixed(1) + "%";
+  $("disSub").textContent = m.disco.usado.toFixed(1) + " GB usados de " + m.disco.total + " GB";
+  $("disLibre").textContent = "Libre: " + (m.disco.total - m.disco.usado).toFixed(1) + " GB";
+  pintarBarra("disBar", disPct);
+
+  // Historial para las gráficas
+  historial.cpu.push(cpu); historial.ram.push(ramPct);
+  Object.values(historial).forEach(a => { while (a.length > CONFIG.PUNTOS_GRAFICA) a.shift(); });
+  grafica("cpuGraf", historial.cpu);
+  grafica("ramGraf", historial.ram);
+}
+
+function estado(texto, color) {
+  const e = $("estado"); e.textContent = texto; e.style.background = color;
+}
+
+// ================== CICLO ==================
+async function actualizar() {
+  try {
+    pintar(await obtenerMetricas());
+    CONFIG.MODO_DEMO ? estado("● Modo demo (datos simulados)", "#f59e0b88") : estado("● Conectado", "#2e7d3288");
+  } catch (e) {
+    estado("● Sin conexión con la API", "#b4231888");
+    console.error("Error al obtener métricas:", e);
+  }
+}
+
+actualizar();
+setInterval(actualizar, CONFIG.INTERVALO_MS);
+</script>
+</body>
+</html>
